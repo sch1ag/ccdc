@@ -1,6 +1,6 @@
 #!/usr/bin/python2
 ###!/usr/libexec/platform-python
-# version 0.1.0
+# version 0.1.1
 import argparse
 import sys
 import os
@@ -130,7 +130,7 @@ def main(args):
 def get_core_hard_limit(pid):
     hard = 0
     if sys.version_info[0] > 2:
-        soft, hard = resource.prlimit(pid, resource.RLIMIT_CORE)
+        _, hard = resource.prlimit(pid, resource.RLIMIT_CORE)
     else:
         limits_filepath = os.path.join('/proc', str(pid),'limits')
         if os.path.exists(limits_filepath):
