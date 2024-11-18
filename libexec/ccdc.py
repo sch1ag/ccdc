@@ -1,6 +1,6 @@
 #!/usr/bin/python2
 ###!/usr/libexec/platform-python
-# version 0.1.1
+# version 0.1.2
 import argparse
 import sys
 import os
@@ -112,6 +112,35 @@ def get_max_allowed_zip_size():
             max_allowed_zip_size = min(cfg.getint('max_file_size_bytes'), max_allowed_zip_size)
     return max_allowed_zip_size
 
+def is_chown_allowed(pid=None):
+    proc_ug_ids = get_proc_id_info(pid)
+    if proc_ug_ids['uid']['real'] == proc_ug_ids['uid']['effective'] \
+    and proc_ug_ids['uid']['effective'] != -1 \
+    and proc_ug_ids['gid']['real'] == proc_ug_ids['gid']['effective'] \
+    and proc_ug_ids['gid']['effective'] != -1:
+        return True
+    return False
+
+def get_proc_id_info(pid=None):
+    types = ['real', 'effective', 'saved', 'filesystem']
+    proc_data = {}
+    if pid:
+        status_file = os.path.join('/proc', str(pid), 'status')
+        if os.path.isfile(status_file):
+            with open(status_file, 'r') as statusfd:
+                for line in statusfd:
+                    if line.startswith('Uid:') or line.startswith('Gid:'):
+                        words = line.split()
+                        if len(words) == 5:
+                            proc_data[words[0][:3].lower()] = dict(zip(types, words[1:]))
+                        if len(proc_data) == 2:
+                            break
+
+    if 'gid' in proc_data:
+        return proc_data
+
+    return {k: {t: -1 for t in types} for k in ['uid', 'gid']}
+
 def do_clean():
     logger.warning("Clean is not implemented yet")
 
@@ -120,12 +149,15 @@ def main(args):
     if args.clean:
         do_clean()
     else:
-        cfg.set_cfg_section_name(args.dumped_uid)
+        chown_ok = is_chown_allowed(args.dumped_pid)
+        #Use custom config in case of non-suid/sgid process
+        if chown_ok:
+            cfg.set_cfg_section_name(args.dumped_uid)
         logger.warning("Process crash has been caught: PID=" + str(args.dumped_pid) +
-                       " UID=" + str(args.dumped_uid) +
+                       " RUID=" + str(args.dumped_uid) +
                        " EXE=" + args.dumped_comm +
                        " SIG=" + str(args.signal_num))
-        do_coredump(args)
+        do_coredump(args, chown_ok)
 
 def get_core_hard_limit(pid):
     hard = 0
@@ -152,7 +184,7 @@ def get_raw_core_size_limit(dumped_pid, core_limit, ignore_soft_limit):
         return get_core_hard_limit(dumped_pid)
     return core_limit
 
-def do_coredump(args):
+def do_coredump(args, chown_ok):
     cfg = get_config()
     max_raw_size = get_raw_core_size_limit(
         args.dumped_pid,
@@ -193,7 +225,8 @@ def do_coredump(args):
                     ):
                     logger.warning("Core of PID " + str(args.dumped_pid) +
                                    " has been collected successfully")
-                    os.chown(coredumpfilepath, args.dumped_uid, -1)
+                    if chown_ok:
+                        os.chown(coredumpfilepath, args.dumped_uid, -1)
                 else:
                     logger.warning("Collecting core of PID " + str(args.dumped_pid) +
                                    " has been failed")
