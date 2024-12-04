@@ -1,5 +1,4 @@
-#!/usr/bin/python2
-###!/usr/libexec/platform-python
+#!/usr/libexec/platform-python
 # version 0.1.2
 import argparse
 import sys
@@ -24,7 +23,7 @@ class ArgumentParser(argparse.ArgumentParser):
         super(ArgumentParser, self).error(message)
 
 class ScriptConfig:
-    def __init__(self, cfg = None, base_cfg_filename=''):
+    def __init__(self, cfg=None, base_cfg_filename=''):
         self.logger = logging.getLogger()
         self.section = 'DEFAULT'
         self.config = configparser.RawConfigParser(defaults=cfg)
@@ -164,7 +163,7 @@ def get_core_hard_limit(pid):
     if sys.version_info[0] > 2:
         _, hard = resource.prlimit(pid, resource.RLIMIT_CORE)
     else:
-        limits_filepath = os.path.join('/proc', str(pid),'limits')
+        limits_filepath = os.path.join('/proc', str(pid), 'limits')
         if os.path.exists(limits_filepath):
             with open(limits_filepath, 'r') as limitsfd:
                 for line in limitsfd:
@@ -192,7 +191,7 @@ def do_coredump(args, chown_ok):
         cfg.getboolean('ignore_soft_limit'))
     if max_raw_size == 0:
         logger.warning("PID " + str(args.dumped_pid) +
-                     " not dumped because of core file size limit")
+                       " not dumped because of core file size limit")
     else:
         save_core_dir = cfg.get('save_core_dir')
         max_allowed_zip_size = get_max_allowed_zip_size()
@@ -217,11 +216,11 @@ def do_coredump(args, chown_ok):
                     inputstream = sys.stdin.buffer
 
                 if do_writecore(
-                    inputstream,
-                    coredumpfilepath,
-                    max_allowed_zip_size,
-                    cfg.getint('compression'),
-                    max_raw_size
+                        inputstream,
+                        coredumpfilepath,
+                        max_allowed_zip_size,
+                        cfg.getint('compression'),
+                        max_raw_size
                     ):
                     logger.warning("Core of PID " + str(args.dumped_pid) +
                                    " has been collected successfully")
@@ -242,9 +241,9 @@ def do_writecore(inputstream, targetfile_pathname, max_zip_size, compression=2, 
     zip_oversize = False
     write_error = False
 
-    def write_data(fd, data):
+    def write_data(filehandle, data):
         try:
-            fd.write(data)
+            filehandle.write(data)
         except:
             logger.error("Error writing data to " + targetfile_pathname, exc_info=True)
             return False
@@ -284,7 +283,8 @@ def do_writecore(inputstream, targetfile_pathname, max_zip_size, compression=2, 
                 #compressed file is too big
                 if max_zip_size != -1 and core_size_zip > max_zip_size:
                     logger.warning(targetfile_pathname +
-                        " file truncated due to high filesystem usage or excessive file size")
+                                   " file truncated due to high filesystem usage"\
+                                   " or excessive file size")
                     zip_oversize = True
                     break
             if not write_error:
@@ -305,26 +305,26 @@ if __name__ == '__main__':
 
     parser = ArgumentParser(description='Customizable core dump collector',
                             conflict_handler='resolve')
-    parser.add_argument('-P', '--dumped-pid',  dest='dumped_pid', type=int,
+    parser.add_argument('-P', '--dumped-pid', dest='dumped_pid', type=int,
                         help='PID of dumped process, as seen in the initial PID namespace')
-    parser.add_argument('-u', '--dumped-uid',  dest='dumped_uid', type=int,
+    parser.add_argument('-u', '--dumped-uid', dest='dumped_uid', type=int,
                         help='Numeric real UID of dumped process')
-    parser.add_argument('-g', '--dumped-gid',  dest='dumped_gid', type=int, default=-1,
+    parser.add_argument('-g', '--dumped-gid', dest='dumped_gid', type=int, default=-1,
                         help='Numeric real GID of dumped process')
-    parser.add_argument('-s', '--signal-num',  dest='signal_num', type=int,
+    parser.add_argument('-s', '--signal-num', dest='signal_num', type=int,
                         help='Number of signal causing dump')
-    parser.add_argument('-t', '--unix-time',   dest='unix_time',  type=int,
+    parser.add_argument('-t', '--unix-time', dest='unix_time', type=int,
                         default=int(time.time()),
                         help='Time of dump, expressed as seconds since the Epoch')
-    parser.add_argument('-c', '--core-limit',  dest='core_limit', type=int, default=0,
+    parser.add_argument('-c', '--core-limit', dest='core_limit', type=int, default=0,
                         help='Core file size soft resource limit of crashing process')
-    parser.add_argument('-h', '--host-name',   dest='host_name',  type=str, default='',
+    parser.add_argument('-h', '--host-name', dest='host_name', type=str, default='',
                         help='Hostname')
     parser.add_argument('-e', '--dumped-exec', dest='dumped_comm', type=str, default='unknown',
                         help='Comm value of the dumped process or thread')
     parser.add_argument('-I', '--trigger-tid', dest='trigger_tid', type=int, default=-1,
                         help='Comm value of the dumped process or thread')
-    parser.add_argument('-C', '--clean',       dest='clean',       action='store_true',
+    parser.add_argument('-C', '--clean', dest='clean', action='store_true',
                         help='Clean savecore directories')
     parser.add_argument('-?', '--help', action='help',
                         help='Show help')
