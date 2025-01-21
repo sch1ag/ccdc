@@ -1,5 +1,5 @@
 #!/usr/libexec/platform-python
-# version 0.1.2
+# version 0.1.3
 import argparse
 import sys
 import os
@@ -8,6 +8,8 @@ from logging.handlers import SysLogHandler
 import bz2
 import pwd
 import time
+import string
+import re
 if sys.version_info[0] == 2:
     import ConfigParser as configparser
 else:
@@ -41,12 +43,14 @@ class ScriptConfig:
                 self.logger.warning('User with uid %d not found.', uid)
         return username
 
-    def set_cfg_section_name(self, uid=None):
+    def set_cfg_section_name_by_uid(self, uid=None):
         proc_owner_username = self.get_username_by_uid(uid)
         if proc_owner_username:
             secname = 'user:' + proc_owner_username
             if self.config.has_section(secname):
                 self.section = secname
+                return True
+        return False
 
     @staticmethod
     def list_config_files(base_name):
@@ -79,7 +83,8 @@ def get_config(base_cfg_filename='/etc/ccdc.conf'):
             'min_fs_free_perc': 15,
             'min_fs_free_bytes': -1,
             'compression': 2,
-            'ignore_soft_limit': 'False'
+            'ignore_soft_limit': 'False',
+            'clean_age_days': 3
             }
         _SCRIPT_CONFIG = ScriptConfig(cfg, base_cfg_filename)
     return _SCRIPT_CONFIG
@@ -140,18 +145,52 @@ def get_proc_id_info(pid=None):
 
     return {k: {t: -1 for t in types} for k in ['uid', 'gid']}
 
-def do_clean():
-    logger.warning("Clean is not implemented yet")
+def do_clean(args):
+    cfg = get_config()
+    if args.defaultclean:
+        cfg.section = 'DEFAULT'
+        do_dir_clean()
+    else:
+        logger.warning("Clean is implemented only for DEFAULT location")
+
+def do_dir_clean():
+    cfg = get_config()
+    if os.path.exists(cfg.get('save_core_dir')):
+        scd_path = os.path.realpath(cfg.get('save_core_dir'))
+        if os.path.isdir(scd_path):
+            logger.info("Looking for old core files in " + scd_path)
+            corefilename_re = re.compile(get_core_file_name())
+            clean_before = int(time.time()) - cfg.getint('clean_age_days') * 24 * 3600
+            for entry in os.listdir(scd_path):
+                fullpath = os.path.join(scd_path, entry)
+                if os.path.isfile(fullpath):
+                    if corefilename_re.search(entry):
+                        delete_core_if_old(fullpath, clean_before)
+        else:
+            logger.error("Path " + scd_path + " is not a directory.")
+    else:
+        logger.error("Directory " + cfg.get('save_core_dir') + " does not exist.")
+
+def delete_core_if_old(fullpath, clean_before):
+    logger.info("Checking age of the file " + fullpath)
+    file_stat = os.lstat(fullpath)
+    if  clean_before > file_stat.st_mtime:
+        logger.info("Going to remove file " + fullpath)
+        try:
+            os.remove(fullpath)
+        except OSError:
+            logger.error("Could not remove " + 
+                         fullpath + " file", exc_info=True)
 
 def main(args):
     cfg = get_config()
     if args.clean:
-        do_clean()
+        do_clean(args)
     else:
         chown_ok = is_chown_allowed(args.dumped_pid)
         #Use custom config in case of non-suid/sgid process
         if chown_ok:
-            cfg.set_cfg_section_name(args.dumped_uid)
+            cfg.set_cfg_section_name_by_uid(args.dumped_uid)
         logger.warning("Process crash has been caught: PID=" + str(args.dumped_pid) +
                        " RUID=" + str(args.dumped_uid) +
                        " EXE=" + args.dumped_comm +
@@ -183,6 +222,31 @@ def get_raw_core_size_limit(dumped_pid, core_limit, ignore_soft_limit):
         return get_core_hard_limit(dumped_pid)
     return core_limit
 
+def comm_name_clear(comm):
+    wo_space = comm.replace(' ', '_')
+    allowed = set(string.digits + string.ascii_letters + '-_')
+    out = [x for x in wo_space if x in allowed]
+    return ''.join(out)
+
+def get_core_file_name(args=None):
+    if args is None:
+        return '^' + r'\.'.join([
+            'core',
+            '[a-zA-Z0-9_-]+',
+            '[0-9]+',
+            '[0-9]+',
+            '[0-9]+',
+            'bz2'
+            ]) + '$'
+    return '.'.join([
+        'core',
+        comm_name_clear(args.dumped_comm),
+        str(args.dumped_uid),
+        str(args.dumped_pid),
+        str(args.unix_time),
+        'bz2'
+        ])
+
 def do_coredump(args, chown_ok):
     cfg = get_config()
     max_raw_size = get_raw_core_size_limit(
@@ -197,14 +261,7 @@ def do_coredump(args, chown_ok):
         max_allowed_zip_size = get_max_allowed_zip_size()
         if max_allowed_zip_size > 0:
 
-            corename = '.'.join([
-                'core',
-                args.dumped_comm,
-                str(args.dumped_uid),
-                str(args.dumped_pid),
-                str(args.unix_time),
-                'bz2'
-                ])
+            corename = get_core_file_name(args)
 
             coredumpfilepath = os.path.join(save_core_dir, corename)
             if os.path.exists(coredumpfilepath):
@@ -326,6 +383,8 @@ if __name__ == '__main__':
                         help='Comm value of the dumped process or thread')
     parser.add_argument('-C', '--clean', dest='clean', action='store_true',
                         help='Clean savecore directories')
+    parser.add_argument('-d', '--defaultclean', dest='defaultclean', action='store_true',
+                        help='Clean DEFAULT savecore directory')
     parser.add_argument('-?', '--help', action='help',
                         help='Show help')
     arguments = parser.parse_args()
